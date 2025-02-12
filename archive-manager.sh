@@ -369,94 +369,140 @@ list_archives() {
         long_format=true
     fi
 
-    local seen_blocks=()    # List of already printed blocks
-    local uncategorized=()  # List for uncategorized archives
+    declare -A archive_type
+    declare -A archive_description
+    declare -A archive_path
+    declare -A archive_block
+    declare -A archive_status
 
-    # Use process substitution instead of a pipe to retain variables
-    while read -r id; do
-        local archive_type archive_description archive_path archive_status archive_block ls_output
+    declare -A group_desc   # Mapping: Group ID -> Group description
+    declare -a group_order  # Array with the order of groups as defined in the config
+    declare -A groups       # Mapping: Group ID -> space-separated list of assigned archive IDs
 
-        archive_type=$(get_config_value "ARCHIVE_${id}_TYPE")
-        archive_description=$(get_config_value "ARCHIVE_${id}_DESCRIPTION")
-        archive_path=$(get_absolute_path "$(get_config_value "ARCHIVE_${id}_PATH")")
-        archive_block=$(get_config_value "ARCHIVE_${id}_BLOCK")
+    # Subfunction: Formats and prints all archives within a group
+    print_group() {
+        local group_id="$1"
+        local archive_ids_str="$2"
+        local long_format="$3"
 
-        # If the path is empty, set a custom message
-        if [ -z "$archive_path" ]; then
-            archive_status="ARCHIVE_${id}_PATH not set"
+        # Determine the group header: For "Uncategorized," use this text;
+        # otherwise, use the description stored in group_desc.
+        local header
+        if [ "$group_id" == "Uncategorized" ]; then
+            header="Uncategorized"
         else
-            ls_output=$(ls "$archive_path" 2>&1)
-            if [ $? -eq 0 ]; then
-                archive_status="OK"
-            else
-                archive_status=$(echo "${ls_output##*:}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
-            fi
+            header="${group_desc[$group_id]}"
+            [ -z "$header" ] && header="Uncategorized ($group_id)"
         fi
 
-        # Set colors only if enabled
-        if $COLOR_ENABLED; then
-            if [ -z "$archive_path" ]; then
-                color_id=$RED
-                color_status=$RED
-            elif [ "$archive_status" != "OK" ]; then
-                color_id=$ORANGE
-                color_status=$ORANGE
-            else
-                color_id=$GREEN
-                color_status=$GREEN
-            fi
-        else
-            color_id=""
-            color_status=""
-            NC=""
-        fi
-
-        # Print block header only once per block
-        if [ -n "$archive_block" ] && [[ ! " ${seen_blocks[*]} " =~ " $archive_block " ]]; then
-            local block_desc
-            block_desc=$(get_config_value "ARCHIVE_BLOCK_${archive_block}")
-            if [ -z "$block_desc" ]; then
-                block_desc="Uncategorized ($archive_block)"
-            fi
-            echo
-            echo -e "${BLUE}### $block_desc ###${NC}"
-            seen_blocks+=("$archive_block")
-        fi
-
-        if [ -n "$archive_block" ]; then
-            # Print archive directly
-            if $long_format; then
-                printf "${color_id}%-4s ${NC}| %-20s | %s\n" "$id" "$archive_type" "$archive_description"
-                printf "  | %s | ${color_status}%s${NC}\n" "$archive_path" "$archive_status"
-            else
-                trimmed_description=$(printf "%-20s" "$archive_description" | cut -c1-20)
-                printf "${color_id}%-4s${NC} | %-11s | %s | %s | ${color_status}%s${NC}\n" \
-                    "$id" "$archive_type" "$trimmed_description" "$archive_path" "$archive_status"
-            fi
-        else
-            # If the archive has no category, save it for later
-            uncategorized+=("$id|$archive_type|$archive_description|$archive_path|$archive_status|$color_id|$color_status")
-        fi
-    done < <(grep -E "^ARCHIVE_[^_]+_TYPE=" "$CONFIG_FILE" \
-              | sed -E 's/^ARCHIVE_([^_]+)_TYPE=.*/\1/' \
-              | sort -u)
-
-    # Now print uncategorized archives
-    if [ ${#uncategorized[@]} -gt 0 ]; then
         echo
-        echo -e "${BLUE}### Uncategorized ###${NC}"
-        for entry in "${uncategorized[@]}"; do
-            IFS='|' read -r id archive_type archive_description archive_path archive_status color_id color_status <<< "$entry"
-            if $long_format; then
-                printf "${color_id}%-4s ${NC}| %-20s | %s\n" "$id" "$archive_type" "$archive_description"
-                printf "  | %s | ${color_status}%s${NC}\n" "$archive_path" "$archive_status"
+        echo -e "${BLUE}### $header ###${NC}"
+
+        local id
+        for id in $archive_ids_str; do
+            local color_id color_status
+            if $COLOR_ENABLED; then
+                if [ -z "${archive_path[$id]}" ]; then
+                    color_id="$RED"
+                    color_status="$RED"
+                elif [ "${archive_status[$id]}" != "OK" ]; then
+                    color_id="$ORANGE"
+                    color_status="$ORANGE"
+                else
+                    color_id="$GREEN"
+                    color_status="$GREEN"
+                fi
             else
-                trimmed_description=$(printf "%-20s" "$archive_description" | cut -c1-20)
+                color_id=""
+                color_status=""
+            fi
+
+            if $long_format; then
+                printf "${color_id}%-4s ${NC}| %-20s | %s\n" \
+                    "$id" "${archive_type[$id]}" "${archive_description[$id]}"
+                printf "  | %s | ${color_status}%s${NC}\n" \
+                    "${archive_path[$id]}" "${archive_status[$id]}"
+            else
+                local trimmed_description
+                trimmed_description=$(printf "%-20s" "${archive_description[$id]}" | cut -c1-20)
                 printf "${color_id}%-4s${NC} | %-11s | %s | %s | ${color_status}%s${NC}\n" \
-                    "$id" "$archive_type" "$trimmed_description" "$archive_path" "$archive_status"
+                    "$id" "${archive_type[$id]}" "$trimmed_description" \
+                    "${archive_path[$id]}" "${archive_status[$id]}"
             fi
         done
+    }
+ 
+    # Step 1: Load archive IDs and related data from the config
+    local id
+    # Determine all archives based on lines where the type is defined:
+    local archive_ids
+    readarray -t archive_ids < <(grep -E "^ARCHIVE_[^_]+_TYPE=" "$CONFIG_FILE" \
+                                 | sed -E 's/^ARCHIVE_([^_]+)_TYPE=.*/\1/' | sort -u)
+
+    for id in "${archive_ids[@]}"; do
+        archive_type["$id"]="$(get_config_value "ARCHIVE_${id}_TYPE")"
+        archive_description["$id"]="$(get_config_value "ARCHIVE_${id}_DESCRIPTION")"
+        archive_path["$id"]="$(get_absolute_path "$(get_config_value "ARCHIVE_${id}_PATH")")"
+        archive_block["$id"]="$(get_config_value "ARCHIVE_${id}_BLOCK")"
+        
+        if [ -z "${archive_path[$id]}" ]; then
+            archive_status["$id"]="ARCHIVE_${id}_PATH not set"
+        else
+            local ls_output
+            ls_output=$(ls "${archive_path[$id]}" 2>&1)
+            retVal=$?
+            if [ $retVal -eq 0 ]; then
+                archive_status["$id"]="OK"
+            else
+                archive_status["$id"]="$(echo "${ls_output##*:}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+            fi
+        fi
+    done
+
+    # Step 2: Load groups (archive blocks) and their order from the config
+    while IFS='=' read -r key value; do
+        local grp_id="${key#ARCHIVE_BLOCK_}"
+        group_desc["$grp_id"]="$value"
+        group_order+=("$grp_id")
+    done < <(grep -E "^ARCHIVE_BLOCK_" "$CONFIG_FILE")
+
+    # Step 3: Assign archives to groups based on their blocks
+    for id in "${archive_ids[@]}"; do
+        local blk="${archive_block[$id]}"
+        # If no block is assigned or the block is not defined in the config,
+        # assign the archive to the "Uncategorized" group.
+        if [ -z "$blk" ] || [ -z "${group_desc[$blk]}" ]; then
+            blk="Uncategorized"
+        fi
+        if [ -n "${groups[$blk]}" ]; then
+            groups[$blk]+=" $id"
+        else
+            groups[$blk]="$id"
+        fi
+    done
+
+    # If there are archives in the "Uncategorized" group and this group does not appear
+    # in the predefined config order, append it at the end.
+    if [ -n "${groups[Uncategorized]}" ]; then
+        local found_uncat=false
+        for grp in "${group_order[@]}"; do
+            if [ "$grp" == "Uncategorized" ]; then
+                found_uncat=true
+                break
+            fi
+        done
+        if ! $found_uncat; then
+            group_order+=("Uncategorized")
+        fi
     fi
+
+    # Step 4: Iterate over groups in the predefined order and print them
+    local grp
+    for grp in "${group_order[@]}"; do
+        if [ -n "${groups[$grp]}" ]; then
+            print_group "$grp" "${groups[$grp]}" "$long_format"
+        fi
+    done
 }
 
 update_script() {
@@ -518,7 +564,7 @@ update_script() {
 # Initialization function
 init() {
 
-    VERSION="1.0.0"
+    VERSION="1.0.1"
 
     # Check if colors are supported (TERM must not be "dumb" and must be outputting to a terminal)
     if [ -t 1 ] && [[ "$TERM" != "dumb" ]]; then
