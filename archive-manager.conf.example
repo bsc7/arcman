@@ -1,7 +1,6 @@
 ###########################################
 # Global Settings
 ###########################################
-MOUNT_BASE=/mnt # TODO: Check implementation
 LOCKFILE_SUFFIX=.archive.lock # TODO: Check implementation
  
 ###########################################

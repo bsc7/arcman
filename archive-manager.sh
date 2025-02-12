@@ -76,7 +76,8 @@ usage() {
     echo "Usage: $0 [option] [suboption]"
     echo "  mount <ARCHIVE_ID>   - Mount an archive"
     echo "  unmount <ARCHIVE_ID> - Unmount an archive"
-    echo "  list [long]          - Show all configured archives. 'long': Two-line display"
+    echo "  list [long]          - Show all configured archives (use 'long' for detailed view)"
+    echo "  update               - Check for updates and update script if a new version is available"
     exit 0
 }
 
@@ -458,8 +459,67 @@ list_archives() {
     fi
 }
 
+update_script() {
+    local github_repo="bsc7/arcman"
+    local repo_url="https://github.com/$github_repo"
+    local script_url
+    script_url="$repo_url/raw/main/$(basename "$0")"
+    local latest_version latest_tag local_version
+    local_version="$VERSION"
+
+    log "Checking for updates..."
+    log "Fetching latest version from: https://api.github.com/repos/$github_repo/tags"
+
+    # Get the latest version tag from GitHub with safe error handling
+    latest_tag=$(curl --fail --silent --show-error "https://api.github.com/repos/$github_repo/tags" | grep -o '"name": *"v[0-9]*\.[0-9]*\.[0-9]*"' | head -n1 | cut -d'"' -f4)
+    retVal=$?
+
+    if [ $retVal -ne 0 ] || [ -z "$latest_tag" ]; then
+        log "Failed to fetch latest version from GitHub or no version found."
+        return 1
+    fi
+
+    latest_version="${latest_tag#v}"  # Remove leading "v" if present
+
+    log "Current version: $local_version"
+    log "Latest version: $latest_version"
+
+    # Compare versions
+    if [ "$(printf '%s\n' "$latest_version" "$local_version" | sort -V | tail -n1)" == "$local_version" ]; then
+        log "You are already using the latest version."
+        return 0
+    fi
+
+    log "Updating script to version $latest_version..."
+    log "Downloading new script from: $script_url"
+
+    # Backup current script
+    local backup_file
+    backup_file="./$(basename "$0").bkp"
+    cp "$0" "$backup_file" || error_exit "Failed to create backup."
+
+    # Download new version with error handling
+    if ! curl -L -A "Mozilla/5.0" --fail --silent --show-error -o "$0.tmp" "$script_url"; then
+        error_exit "Failed to download latest version from: $script_url"
+    fi
+
+    # Verify script integrity (optional)
+    if ! grep -q 'VERSION=' "$0.tmp"; then
+        error_exit "Downloaded script is invalid. Update aborted."
+    fi
+
+    # Replace old script with new version
+    mv "$0.tmp" "$0" || error_exit "Failed to apply update."
+    chmod +x "$0"
+
+    log "Update successful! New version: $latest_version"
+}
+
 # Initialization function
 init() {
+
+    VERSION="1.0.0"
+
     # Check if colors are supported (TERM must not be "dumb" and must be outputting to a terminal)
     if [ -t 1 ] && [[ "$TERM" != "dumb" ]]; then
         COLOR_ENABLED=true
@@ -475,16 +535,14 @@ init() {
     NC='\033[0m'         # Reset (no color)
 
     LOG_FILE="./archive-manager.log"
-    > "$LOG_FILE" # Overwrite log file at script start
+    : > "$LOG_FILE"
 
     CONFIG_FILE="$(dirname "$0")/archive-manager.conf"
     if [ ! -f "$CONFIG_FILE" ]; then
         error_exit "Configuration file not found: $CONFIG_FILE" >&2
-        exit 1
     fi
 
     # Load configuration values
-    MOUNT_BASE=$(get_absolute_path "$(get_config_value "MOUNT_BASE")")
     LOCKFILE_SUFFIX=$(get_config_value "LOCKFILE_SUFFIX")
 
     # Define tools with absolute paths
@@ -515,6 +573,9 @@ main() {
             ;;
         list)
             list_archives "$2"
+            ;;
+        update)
+            update_script
             ;;
         *)
             usage

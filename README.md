@@ -20,6 +20,7 @@ A Bash script for managing encrypted archives using various tools like Cryptomat
 | `unmount <ARCHIVE_ID>` | Unmount an archive                         |
 | `list`                 | Show configured archives (compact view)    |
 | `list long`            | Show archives in a detailed multi-line format |
+| `update`               | Check for updates and update script if a new version is available |
 
 ### Example Output for `list`
 The `list` command displays all configured archives. If archives are grouped into **blocks**, these are shown with a header.
