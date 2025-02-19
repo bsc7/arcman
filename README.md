@@ -8,18 +8,30 @@ A Bash script for managing encrypted archives using various tools like Cryptomat
 - Flexible Configuration via archive-manager.conf.
 - Optional "long" listing format for better readability.
 
+## Configuration File Lookup Order
+The script automatically searches for a configuration file in the following order:
+1. A custom file specified using `-c <config-file>` or `--config <config-file>`.
+2. The local directory: `./archive-manager.conf`
+3. The user-specific config directory: `$HOME/.local/share/archive-manager/archive-manager.conf`
+4. The system-wide config directory: `/etc/archive-manager/archive-manager.conf`
+
 ## Usage
 ```bash
-./archive-manager.sh [option] [suboption]
+./archive-manager.sh [options] <command> [arguments]
 ```
 
+### Options: 
+| Option             | Description                                                          |
+|--------------------|----------------------------------------------------------------------|
+| -c \<config-file\> | Use a custom configuration file instead of the default lookup order. |
+
 ### Commands:
-| Command              | Description                                   |
-|----------------------|-----------------------------------------------|
-| `mount <ARCHIVE_ID>`   | Mount an archive                           |
-| `unmount <ARCHIVE_ID>` | Unmount an archive                         |
+| Command                | Description                                |
+|------------------------|--------------------------------------------|
 | `list`                 | Show configured archives (compact view)    |
 | `list long`            | Show archives in a detailed multi-line format |
+| `mount <ARCHIVE_ID>`   | Mount an archive                           |
+| `unmount <ARCHIVE_ID>` | Unmount an archive                         |
 | `update`               | Check for updates and update script if a new version is available |
 
 ### Example Output for `list`

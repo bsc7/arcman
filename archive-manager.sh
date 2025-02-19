@@ -73,11 +73,30 @@ error_exit() {
 
 # Display usage information
 usage() {
-    echo "Usage: $0 [option] [suboption]"
-    echo "  mount <ARCHIVE_ID>   - Mount an archive"
-    echo "  unmount <ARCHIVE_ID> - Unmount an archive"
-    echo "  list [long]          - Show all configured archives (use 'long' for detailed view)"
-    echo "  update               - Check for updates and update script if a new version is available"
+    echo "Usage: $0 [options] <command> [arguments]"
+    echo ""
+    echo "Options:"
+    echo "  -c, --config <file>  Specify a custom configuration file (default locations will be used otherwise)"
+    echo ""
+    echo "Commands:"
+    echo "  mount <ARCHIVE_ID>   Mount the specified archive"
+    echo "  unmount <ARCHIVE_ID> Unmount the specified archive"
+    echo "  list [long]          Show all configured archives (use 'long' for detailed view)"
+    echo "  update               Check for updates and update the script if a new version is available"
+    echo ""
+    echo "Configuration File Lookup Order:"
+    echo "  1. Custom file specified with '-c' or '--config'"
+    echo "  2. ./archive-manager.conf"
+    echo "  3. \$HOME/.local/share/archive-manager/archive-manager.conf"
+    echo "  4. /etc/archive-manager/archive-manager.conf"
+    echo ""
+    echo "Examples:"
+    echo "  $0 mount my_archive           # Mount 'my_archive'"
+    echo "  $0 unmount my_archive         # Unmount 'my_archive'"
+    echo "  $0 list                       # Show configured archives"
+    echo "  $0 list long                  # Show detailed archive list"
+    echo "  $0 -c my_config.conf mount my_archive  # Use custom config and mount"
+    echo ""
     exit 0
 }
 
@@ -561,10 +580,71 @@ update_script() {
     log "Update successful! New version: $latest_version"
 }
 
+# Find and set the configuration file path (without sourcing it)
+set_config_path() {
+    # Highest priority: configuration file provided via parameter
+    if [ -n "$CONFIG_FILE" ]; then
+        if [ -f "$CONFIG_FILE" ]; then
+            echo "Configuration file set to: $CONFIG_FILE"
+            return
+        else
+            error_exit "The specified configuration file was not found: $CONFIG_FILE"
+        fi
+    fi
+
+    local candidates=(
+        "./archive-manager.conf"
+        "$HOME/.local/share/archive-manager/archive-manager.conf"
+        "/etc/archive-manager/archive-manager.conf"
+    )
+
+    for candidate in "${candidates[@]}"; do
+        if [ -f "$candidate" ]; then
+            CONFIG_FILE="$candidate"
+            echo "Configuration file set to: $CONFIG_FILE"
+            return
+        fi
+    done
+
+    error_exit "No configuration file found. Searched in: ${candidates[*]}"
+}
+
+# Parse script options (e.g. -c/--config) and return remaining arguments
+parse_script_args() {
+    local args=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -c|--config)
+                if [ -n "$2" ]; then
+                    CONFIG_FILE="$2"
+                    shift 2
+                else
+                    error_exit "Option -c|--config requires an argument."
+                fi
+                ;;
+            --)
+                shift
+                break
+                ;;
+            -*)
+                error_exit "Unknown option: $1"
+                ;;
+            *)
+                args+=("$1")
+                shift
+                ;;
+        esac
+    done
+    
+    for arg in "${args[@]}"; do
+        echo "$arg"
+    done
+}
+
 # Initialization function
 init() {
 
-    VERSION="1.0.1"
+    VERSION="1.1.0"
 
     # Check if colors are supported (TERM must not be "dumb" and must be outputting to a terminal)
     if [ -t 1 ] && [[ "$TERM" != "dumb" ]]; then
@@ -583,11 +663,10 @@ init() {
     LOG_FILE="./archive-manager.log"
     : > "$LOG_FILE"
 
-    CONFIG_FILE="$(dirname "$0")/archive-manager.conf"
-    if [ ! -f "$CONFIG_FILE" ]; then
-        error_exit "Configuration file not found: $CONFIG_FILE" >&2
-    fi
-
+    CONFIG_FILE=""
+    readarray -t ARCHIVE_ARGS < <(parse_script_args "$@")
+    set_config_path
+    
     # Load configuration values
     LOCKFILE_SUFFIX=$(get_config_value "LOCKFILE_SUFFIX")
 
@@ -608,17 +687,21 @@ init() {
 
 # Main control function
 main() {
-    case "$1" in
+    if [ ${#ARCHIVE_ARGS[@]} -eq 0 ]; then
+        usage
+    fi
+
+    case "${ARCHIVE_ARGS[0]}" in
         mount)
-            [ -z "$2" ] && usage
-            mount_archive "$2"
+            [ -z "${ARCHIVE_ARGS[1]}" ] && usage
+            mount_archive "${ARCHIVE_ARGS[1]}"
             ;;
         unmount)
-            [ -z "$2" ] && usage
-            unmount_archive "$2"
+            [ -z "${ARCHIVE_ARGS[1]}" ] && usage
+            unmount_archive "${ARCHIVE_ARGS[1]}"
             ;;
         list)
-            list_archives "$2"
+            list_archives "${ARCHIVE_ARGS[1]}"
             ;;
         update)
             update_script
@@ -629,5 +712,5 @@ main() {
     esac
 }
 
-init
+init "$@"
 main "$@"
