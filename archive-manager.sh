@@ -22,27 +22,27 @@ get_absolute_path() {
         return 1  # Error: No path specified
     fi
 
-    if [[ "$path" == "~"* ]]; then  # Ensure the home path is returned as an absolute path
-        echo "${HOME}${path:1}"
-        return 0
-    elif [[ "$path" = /* ]]; then  # Return the absolute path if it is already absolute
-        # Escape possible special characters in the path
-        echo "$(printf '%q' "$path")"
-        return 0
-    else  # Otherwise, determine the absolute path relative to the config directory
-        local abs_path
-        abs_path=$(cd "$(dirname "$CONFIG_FILE")" && realpath "$path" 2>/dev/null)
+    # Ersetze Umgebungsvariablen (z.B. $USER) im Pfad
+    path=$(eval echo "$path")
 
-        # If realpath fails, return the **original path** from the config
-        if [ $? -ne 0 ] || [ -z "$abs_path" ]; then
-            echo "$path"  # **Return original value from configuration**
-            return 2  # Error: realpath failed
-        fi
-
-        # Escape possible special characters in the path
-        echo "$(printf '%q' "$abs_path")"
+    # Falls der Pfad bereits absolut ist, gib ihn zurück
+    if [[ "$path" = /* ]]; then
+        echo "$path"
         return 0
     fi
+
+    local abs_path
+    abs_path=$(realpath "$path" 2>/dev/null)
+    retVal=$?
+    # If realpath fails, return the **original path** from working dir
+    if [ $retVal -ne 0 ] || [ -z "$abs_path" ]; then
+        echo "$path"  # **Return original value from configuration**
+        return 2  # Error: realpath failed
+    fi
+
+    # Escape possible special characters in the path
+    echo "$abs_path"
+    return 0
 }
 
 # Non-interactive logging function (outputs to terminal and logfile)
@@ -231,7 +231,7 @@ mount_ecryptfs() {
 
     echo -n "Enter the user password to decrypt the eCryptfs passphrase for archive $archive_id: "
     local user_passwd
-    read -s user_passwd
+    read -sr user_passwd
     echo
 
     local passphrase
@@ -292,7 +292,7 @@ mount_archive() {
             [ -d "$mount_point" ] || mkdir -p "$mount_point"
             echo -n "Enter password: "
             local password
-            read -s password
+            read -sr password
             echo
             echo "$password" | "$CRYPTOMATOR_CLI_CMD" unlock \
                 --password:stdin \
@@ -644,7 +644,7 @@ parse_script_args() {
 # Initialization function
 init() {
 
-    VERSION="1.1.0"
+    VERSION="1.1.1"
 
     # Check if colors are supported (TERM must not be "dumb" and must be outputting to a terminal)
     if [ -t 1 ] && [[ "$TERM" != "dumb" ]]; then
