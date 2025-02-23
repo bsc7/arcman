@@ -304,7 +304,7 @@ mount_archive() {
 
             unset password
 
-            sleep 1
+            sleep 3
 
             if ps -p $pid > /dev/null; then
                 log "CryptomatorCLI is running, cryptomator-cli pid: $pid"
@@ -662,7 +662,7 @@ parse_script_args() {
 # Initialization function
 init() {
 
-    VERSION="1.2.0"
+    VERSION="1.2.1"
 
     # Check if colors are supported (TERM must not be "dumb" and must be outputting to a terminal)
     if [ -t 1 ] && [[ "$TERM" != "dumb" ]]; then
