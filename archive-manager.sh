@@ -290,18 +290,36 @@ mount_archive() {
             [ -z "$CRYPTOMATOR_CLI_CMD" ] && error_exit "CryptomatorCLI path not set!"
             [ -z "$mount_point" ] && error_exit "Configuration error: ARCHIVE_${archive_id}_MOUNTPOINT is not set or empty."
             [ -d "$mount_point" ] || mkdir -p "$mount_point"
+
             echo -n "Enter password: "
-            local password
             read -sr password
             echo
+
             echo "$password" | "$CRYPTOMATOR_CLI_CMD" unlock \
                 --password:stdin \
                 --mountPoint="$mount_point" \
                 --mounter=org.cryptomator.frontend.fuse.mount.LinuxFuseMountProvider \
-                "$archive_path" > ./cryptomator-cli.log 2>&1 || error_exit "Error mounting $archive_id (CryptomatorCLI)"
-            post_mount_action "$mount_point"
-            log "Archive successfully mounted:"
-            log "  $archive_id | $archive_type | $archive_description | $archive_path -> $mount_point"
+                "$archive_path" > ./cryptomator-cli.log 2>&1 &
+            pid=$!
+
+            unset password
+
+            sleep 1
+
+            if ps -p $pid > /dev/null; then
+                log "CryptomatorCLI is running, cryptomator-cli pid: $pid"
+                if [ -d "$mount_point" ] && [ "$(ls -A "$mount_point")" ]; then
+                    log "Archive successfully mounted:"
+                    log "  $archive_id | $archive_type | $archive_description | $archive_path -> $mount_point"
+                    log "  to lock the archive, send 'kill $pid'"
+                    post_mount_action "$mount_point"
+                else
+                    warn "  Unexpected situation: CryptomatorCLI is running, but the mount point is empty. Check what's going on and, if needed, send: 'kill $pid' or 'kill -9 $pid'"
+                    warn "  $archive_id | $archive_type | $archive_description | $archive_path -> $mount_point"
+                fi
+            else
+                error_exit "Error mounting $archive_id (CryptomatorCLI): Process $pid seems to have been terminated unexpectedly."
+            fi
             ;;
         gocryptfs)
             [ -z "$GOCRYPTFS_CMD" ] && error_exit "gocryptfs path not set!"
@@ -644,7 +662,7 @@ parse_script_args() {
 # Initialization function
 init() {
 
-    VERSION="1.1.1"
+    VERSION="1.2.0"
 
     # Check if colors are supported (TERM must not be "dumb" and must be outputting to a terminal)
     if [ -t 1 ] && [[ "$TERM" != "dumb" ]]; then
