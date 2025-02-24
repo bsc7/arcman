@@ -77,6 +77,8 @@ usage() {
     echo ""
     echo "Options:"
     echo "  -c, --config <file>  Specify a custom configuration file (default locations will be used otherwise)"
+    echo "  -h, --help           Show this help message and exit"
+    echo "  -v, --version        Display the script version and exit"
     echo ""
     echo "Commands:"
     echo "  mount <ARCHIVE_ID>   Mount the specified archive"
@@ -627,42 +629,36 @@ set_config_path() {
     error_exit "No configuration file found. Searched in: ${candidates[*]}"
 }
 
-# Parse script options (e.g. -c/--config) and return remaining arguments
-parse_script_args() {
-    local args=()
+parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -c|--config)
-                if [ -n "$2" ]; then
+                if [[ -n "$2" ]]; then
                     CONFIG_FILE="$2"
                     shift 2
                 else
                     error_exit "Option -c|--config requires an argument."
                 fi
                 ;;
-            --)
-                shift
-                break
+            -h|--help)
+                usage
                 ;;
-            -*)
-                error_exit "Unknown option: $1"
+            -v|--version)
+                echo "Version: $VERSION"
+                exit 0
                 ;;
             *)
-                args+=("$1")
+                ARCHIVE_ARGS+=("$1")
                 shift
                 ;;
         esac
-    done
-    
-    for arg in "${args[@]}"; do
-        echo "$arg"
     done
 }
 
 # Initialization function
 init() {
 
-    VERSION="1.2.1"
+    VERSION="1.2.2"
 
     # Check if colors are supported (TERM must not be "dumb" and must be outputting to a terminal)
     if [ -t 1 ] && [[ "$TERM" != "dumb" ]]; then
@@ -681,10 +677,10 @@ init() {
     LOG_FILE="./archive-manager.log"
     : > "$LOG_FILE"
 
-    CONFIG_FILE=""
-    readarray -t ARCHIVE_ARGS < <(parse_script_args "$@")
+    CONFIG_FILE="" # will be initialized in parse_args
+    parse_args "$@"
     set_config_path
-    
+
     # Load configuration values
     LOCKFILE_SUFFIX=$(get_config_value "LOCKFILE_SUFFIX")
 
@@ -705,7 +701,8 @@ init() {
 
 # Main control function
 main() {
-    if [ ${#ARCHIVE_ARGS[@]} -eq 0 ]; then
+    #if [ ${#ARCHIVE_ARGS[@]} -eq 0 ]; then
+    if [ $# -eq 0 ]; then
         usage
     fi
 

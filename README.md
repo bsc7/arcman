@@ -24,6 +24,8 @@ The script automatically searches for a configuration file in the following orde
 | Option             | Description                                                          |
 |--------------------|----------------------------------------------------------------------|
 | -c \<config-file\> | Use a custom configuration file instead of the default lookup order. |
+| -h                 | Show help message and exit                                           |
+| -v                 | Display the script version and exit                                  |
 
 ### Commands:
 | Command                | Description                                |
