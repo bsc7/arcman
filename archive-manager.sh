@@ -464,7 +464,7 @@ list_archives() {
             else
                 local trimmed_description
                 trimmed_description=$(printf "%-20s" "${archive_description[$id]}" | cut -c1-20)
-                printf "${color_id}%-4s${NC} | %-11s | %s | %s | ${color_status}%s${NC}\n" \
+                printf "${color_id}%-4s${NC} | %-14s | %s | %s | ${color_status}%s${NC}\n" \
                     "$id" "${archive_type[$id]}" "$trimmed_description" \
                     "${archive_path[$id]}" "${archive_status[$id]}"
             fi
@@ -658,7 +658,7 @@ parse_args() {
 # Initialization function
 init() {
 
-    VERSION="1.2.2"
+    VERSION="1.2.3"
 
     # Check if colors are supported (TERM must not be "dumb" and must be outputting to a terminal)
     if [ -t 1 ] && [[ "$TERM" != "dumb" ]]; then
