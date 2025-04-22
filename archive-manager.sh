@@ -404,8 +404,13 @@ unmount_archive() {
 # List all archives
 list_archives() {
     local long_format=false
+    local ok_filter=false
+
+    # Parameter auswerten: "long" oder "ok"
     if [[ "$1" == "long" ]]; then
         long_format=true
+    elif [[ "$1" == "ok" ]]; then
+        ok_filter=true
     fi
 
     declare -A archive_type
@@ -414,9 +419,9 @@ list_archives() {
     declare -A archive_block
     declare -A archive_status
 
-    declare -A group_desc   # Mapping: Group ID -> Group description
-    declare -a group_order  # Array with the order of groups as defined in the config
-    declare -A groups       # Mapping: Group ID -> space-separated list of assigned archive IDs
+    declare -A group_desc
+    declare -a group_order
+    declare -A groups
 
     # Subfunction: Formats and prints all archives within a group
     print_group() {
@@ -424,8 +429,6 @@ list_archives() {
         local archive_ids_str="$2"
         local long_format="$3"
 
-        # Determine the group header: For "Uncategorized," use this text;
-        # otherwise, use the description stored in group_desc.
         local header
         if [ "$group_id" == "Uncategorized" ]; then
             header="Uncategorized"
@@ -470,46 +473,53 @@ list_archives() {
             fi
         done
     }
- 
-    # Step 1: Load archive IDs and related data from the config
+
+    # Step 1: Load archive IDs und deren Daten
     local id
-    # Determine all archives based on lines where the type is defined:
-    local archive_ids
-    readarray -t archive_ids < <(grep -E "^ARCHIVE_[^_]+_TYPE=" "$CONFIG_FILE" \
-                                 | sed -E 's/^ARCHIVE_([^_]+)_TYPE=.*/\1/' | sort -u)
+    readarray -t archive_ids < <(
+        grep -E "^ARCHIVE_[^_]+_TYPE=" "$CONFIG_FILE" \
+        | sed -E 's/^ARCHIVE_([^_]+)_TYPE=.*/\1/' \
+        | sort -u
+    )
 
     for id in "${archive_ids[@]}"; do
         archive_type["$id"]="$(get_config_value "ARCHIVE_${id}_TYPE")"
         archive_description["$id"]="$(get_config_value "ARCHIVE_${id}_DESCRIPTION")"
         archive_path["$id"]="$(get_absolute_path "$(get_config_value "ARCHIVE_${id}_PATH")")"
         archive_block["$id"]="$(get_config_value "ARCHIVE_${id}_BLOCK")"
-        
+
         if [ -z "${archive_path[$id]}" ]; then
             archive_status["$id"]="ARCHIVE_${id}_PATH not set"
         else
             local ls_output
             ls_output=$(ls "${archive_path[$id]}" 2>&1)
-            retVal=$?
-            if [ $retVal -eq 0 ]; then
+            if [ $? -eq 0 ]; then
                 archive_status["$id"]="OK"
             else
-                archive_status["$id"]="$(echo "${ls_output##*:}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+                archive_status["$id"]="$(echo "${ls_output##*:}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
             fi
+        fi
+
+        # Bei 'ok_filter' nur Status OK behalten
+        if $ok_filter && [ "${archive_status[$id]}" != "OK" ]; then
+            unset archive_type["$id"] archive_description["$id"] archive_path["$id"] archive_block["$id"] archive_status["$id"]
+            continue
         fi
     done
 
-    # Step 2: Load groups (archive blocks) and their order from the config
+    # Step 2: Blocks (Gruppen) einlesen
     while IFS='=' read -r key value; do
         local grp_id="${key#ARCHIVE_BLOCK_}"
         group_desc["$grp_id"]="$value"
         group_order+=("$grp_id")
     done < <(grep -E "^ARCHIVE_BLOCK_" "$CONFIG_FILE")
 
-    # Step 3: Assign archives to groups based on their blocks
+    # Step 3: Assign archives to groups
     for id in "${archive_ids[@]}"; do
+        # Übersprungene IDs (bei ok_filter) haben kein archive_block und kein archive_type
+        [ -z "${archive_block[$id]}" ] && continue
+
         local blk="${archive_block[$id]}"
-        # If no block is assigned or the block is not defined in the config,
-        # assign the archive to the "Uncategorized" group.
         if [ -z "$blk" ] || [ -z "${group_desc[$blk]}" ]; then
             blk="Uncategorized"
         fi
@@ -520,27 +530,18 @@ list_archives() {
         fi
     done
 
-    # If there are archives in the "Uncategorized" group and this group does not appear
-    # in the predefined config order, append it at the end.
+    # Unkategorisierte am Ende, falls vorhanden
     if [ -n "${groups[Uncategorized]}" ]; then
-        local found_uncat=false
+        local found=false
         for grp in "${group_order[@]}"; do
-            if [ "$grp" == "Uncategorized" ]; then
-                found_uncat=true
-                break
-            fi
+            [ "$grp" == "Uncategorized" ] && found=true
         done
-        if ! $found_uncat; then
-            group_order+=("Uncategorized")
-        fi
+        $found || group_order+=("Uncategorized")
     fi
 
-    # Step 4: Iterate over groups in the predefined order and print them
-    local grp
+    # Step 4: Ausgabe pro Block, leere Blöcke automatisch übersprungen
     for grp in "${group_order[@]}"; do
-        if [ -n "${groups[$grp]}" ]; then
-            print_group "$grp" "${groups[$grp]}" "$long_format"
-        fi
+        [ -n "${groups[$grp]}" ] && print_group "$grp" "${groups[$grp]}" "$long_format"
     done
 }
 
@@ -658,7 +659,7 @@ parse_args() {
 # Initialization function
 init() {
 
-    VERSION="1.2.3"
+    VERSION="1.3.0"
 
     # Check if colors are supported (TERM must not be "dumb" and must be outputting to a terminal)
     if [ -t 1 ] && [[ "$TERM" != "dumb" ]]; then
