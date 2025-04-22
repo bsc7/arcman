@@ -83,7 +83,9 @@ usage() {
     echo "Commands:"
     echo "  mount <ARCHIVE_ID>   Mount the specified archive"
     echo "  unmount <ARCHIVE_ID> Unmount the specified archive"
-    echo "  list [long]          Show all configured archives (use 'long' for detailed view)"
+    echo "  list [long|ok]       Show all configured archives"
+    echo "                         long – detailed view"
+    echo "                         ok   – only archives found on disk"
     echo "  update               Check for updates and update the script if a new version is available"
     echo ""
     echo "Configuration File Lookup Order:"
@@ -97,6 +99,7 @@ usage() {
     echo "  $0 unmount my_archive         # Unmount 'my_archive'"
     echo "  $0 list                       # Show configured archives"
     echo "  $0 list long                  # Show detailed archive list"
+    echo "  $0 list ok                    # Show only available archives"
     echo "  $0 -c my_config.conf mount my_archive  # Use custom config and mount"
     echo ""
     exit 0
@@ -659,7 +662,7 @@ parse_args() {
 # Initialization function
 init() {
 
-    VERSION="1.3.0"
+    VERSION="1.3.1"
 
     # Check if colors are supported (TERM must not be "dumb" and must be outputting to a terminal)
     if [ -t 1 ] && [[ "$TERM" != "dumb" ]]; then
