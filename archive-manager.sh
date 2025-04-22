@@ -548,11 +548,34 @@ list_archives() {
     done
 }
 
+get_script_path() {
+    local source="$0"
+    local resolved
+
+    # Falls über alias oder PATH ausgeführt
+    if [[ "$source" != /* ]]; then
+        source="$(command -v "$source")"
+    fi
+
+    # Folge Symlinks bis zur echten Datei
+    while [ -h "$source" ]; do
+        resolved="$(readlink "$source")"
+        if [[ "$resolved" == /* ]]; then
+            source="$resolved"
+        else
+            source="$(dirname "$source")/$resolved"
+        fi
+    done
+
+    realpath "$source"
+}
+
 update_script() {
     local github_repo="bsc7/arcman"
     local repo_url="https://github.com/$github_repo"
-    local script_url
-    script_url="$repo_url/raw/main/$(basename "$0")"
+    local script_name
+    script_name=$(basename "$(get_script_path)")
+    local script_url="$repo_url/raw/main/$script_name"
     local latest_version latest_tag local_version
     local_version="$VERSION"
 
@@ -560,7 +583,10 @@ update_script() {
     log "Fetching latest version from: https://api.github.com/repos/$github_repo/tags"
 
     # Get the latest version tag from GitHub with safe error handling
-    latest_tag=$(curl --fail --silent --show-error "https://api.github.com/repos/$github_repo/tags" | grep -o '"name": *"v[0-9]*\.[0-9]*\.[0-9]*"' | head -n1 | cut -d'"' -f4)
+    latest_tag=$(curl --fail --silent --show-error \
+        "https://api.github.com/repos/$github_repo/tags" \
+        | grep -o '"name": *"v[0-9]*\.[0-9]*\.[0-9]*"' \
+        | head -n1 | cut -d'"' -f4)
     retVal=$?
 
     if [ $retVal -ne 0 ] || [ -z "$latest_tag" ]; then
@@ -582,24 +608,28 @@ update_script() {
     log "Updating script to version $latest_version..."
     log "Downloading new script from: $script_url"
 
+    local current_script
+    current_script=$(get_script_path)
+
     # Backup current script
     local backup_file
-    backup_file="./$(basename "$0").bkp"
-    cp "$0" "$backup_file" || error_exit "Failed to create backup."
+    backup_file="${current_script}.bkp"
+    cp "$current_script" "$backup_file" || error_exit "Failed to create backup."
 
     # Download new version with error handling
-    if ! curl -L -A "Mozilla/5.0" --fail --silent --show-error -o "$0.tmp" "$script_url"; then
+    if ! curl -L -A "Mozilla/5.0" --fail --silent --show-error \
+         -o "${current_script}.tmp" "$script_url"; then
         error_exit "Failed to download latest version from: $script_url"
     fi
 
     # Verify script integrity (optional)
-    if ! grep -q 'VERSION=' "$0.tmp"; then
+    if ! grep -q 'VERSION=' "${current_script}.tmp"; then
         error_exit "Downloaded script is invalid. Update aborted."
     fi
 
     # Replace old script with new version
-    mv "$0.tmp" "$0" || error_exit "Failed to apply update."
-    chmod +x "$0"
+    mv "${current_script}.tmp" "$current_script" || error_exit "Failed to apply update."
+    chmod +x "$current_script"
 
     log "Update successful! New version: $latest_version"
 }
@@ -662,7 +692,7 @@ parse_args() {
 # Initialization function
 init() {
 
-    VERSION="1.3.1"
+    VERSION="1.3.2"
 
     # Check if colors are supported (TERM must not be "dumb" and must be outputting to a terminal)
     if [ -t 1 ] && [[ "$TERM" != "dumb" ]]; then
